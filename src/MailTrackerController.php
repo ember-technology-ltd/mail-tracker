@@ -4,14 +4,12 @@ namespace jdavidbakr\MailTracker;
 
 use Event;
 use Response;
-use App\Http\Requests;
-
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-
 use jdavidbakr\MailTracker\Events\ViewEmailEvent;
 use jdavidbakr\MailTracker\Exceptions\BadUrlLink;
 use jdavidbakr\MailTracker\Events\LinkClickedEvent;
+use jdavidbakr\MailTracker\Events\ValidActionEvent;
 
 class MailTrackerController extends Controller
 {
@@ -30,9 +28,15 @@ class MailTrackerController extends Controller
         $tracker = Model\SentEmail::where('hash', $hash)
             ->first();
         if ($tracker) {
-            $tracker->opens++;
-            $tracker->save();
-            Event::dispatch(new ViewEmailEvent($tracker));
+            $event = new ValidActionEvent($tracker);
+
+            Event::dispatch($event);
+
+            if (!$event->skip) {
+                $tracker->opens++;
+                $tracker->save();
+                Event::dispatch(new ViewEmailEvent($tracker));
+            }
         }
 
         return $response;
@@ -59,21 +63,27 @@ class MailTrackerController extends Controller
         $tracker = Model\SentEmail::where('hash', $hash)
             ->first();
         if ($tracker) {
-            $tracker->clicks++;
-            $tracker->save();
-            $url_clicked = Model\SentEmailUrlClicked::where('url', $url)->where('hash', $hash)->first();
-            if ($url_clicked) {
-                $url_clicked->clicks++;
-                $url_clicked->save();
-            } else {
-                $url_clicked = Model\SentEmailUrlClicked::create([
-                    'sent_email_id' => $tracker->id,
-                    'url' => $url,
-                    'hash' => $tracker->hash,
-                ]);
-            }
-            Event::dispatch(new LinkClickedEvent($tracker));
 
+            $event = new ValidActionEvent($tracker);
+            Event::dispatch($event);
+
+            if (!$event->skip) 
+            {
+                $tracker->clicks++;
+                $tracker->save();
+                $url_clicked = Model\SentEmailUrlClicked::where('url', $url)->where('hash', $hash)->first();
+                if ($url_clicked) {
+                    $url_clicked->clicks++;
+                    $url_clicked->save();
+                } else {
+                    $url_clicked = Model\SentEmailUrlClicked::create([
+                        'sent_email_id' => $tracker->id,
+                        'url' => $url,
+                        'hash' => $tracker->hash,
+                    ]);
+                }
+                Event::dispatch(new LinkClickedEvent($tracker));
+            }
             return redirect($url);
         }
 
